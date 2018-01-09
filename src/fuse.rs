@@ -5,6 +5,7 @@
 #![allow(non_camel_case_types, missing_docs, dead_code)]
 
 use fuse_opts::fuse_args;
+
 cfg_if! {
     if #[cfg(feature="rust-mount")] {
         use fuse_opts::{FuseOpts, MetaFuseOpt};
@@ -599,6 +600,7 @@ cfg_if! {
         use std::os::unix::net::UnixStream;
         use libc::{self, c_void};
         use errno::errno;
+        use std::mem;
 
         fn fuse_mount_fusermount(mountpoint: &PathBuf, _: &fuse_args, mnt_opts: &FuseOpts) -> i32
         {
@@ -614,9 +616,21 @@ cfg_if! {
             unsafe {
                 libc::fcntl(fd, libc::F_SETFD, 0);
             }
-            match Command::new("fusermount")
-                .arg("-o")
-                .arg(mnt_opts.to_string())
+            let mut fusermount = Command::new("fusermount");
+            if mnt_opts.opts_fuse.len() > 0 {
+                fusermount.arg("-o").arg(
+                    mnt_opts.opts_fuse.iter()
+                    .map(|x| x.to_string()).collect::<Vec<String>>().join(",")
+                    );
+            }
+            if mnt_opts.opts_fusermount.len() > 0 {
+                fusermount.arg("-o").arg(
+                    mnt_opts.opts_fusermount.iter()
+                    .map(|x| x.to_string()).collect::<Vec<String>>().join(",")
+                    );
+            }
+
+            match fusermount
                 .arg("--")
                 .arg(mountpoint)
                 .env(FUSE_COMMFD_ENV, format!("{}", fd))
@@ -628,8 +642,12 @@ cfg_if! {
                         return -1;
                     }
                 };
-
-            return sock1.recvfd().unwrap_or(-1);
+            let res = sock1.recvfd().unwrap_or(-1);
+            if is_opt_fusemount!(AutoUnmount, mnt_opts) {
+                info!("forget fusermount socket");
+                mem::forget(sock1);
+            }
+            return res;
         }
 
         fn fuse_kern_mount(mountpoint: &PathBuf, args: &fuse_args) -> i32
@@ -638,13 +656,13 @@ cfg_if! {
             let mut mnt_opts = FuseOpts::new();
             mnt_opts.fuse_opt_parse(args);
 
-            if let None = get_opt!(Uid, mnt_opts) {
+            if let None = get_opt_fuse!(Uid, mnt_opts) {
                 mnt_opts.add_opt(MetaFuseOpt::Uid(unsafe{getuid()}));
             }
-            if let None = get_opt!(Gid, mnt_opts) {
+            if let None = get_opt_fuse!(Gid, mnt_opts) {
                 mnt_opts.add_opt(MetaFuseOpt::Gid(unsafe{getgid()}));
             }
-            if let None = get_opt!(RootMode, mnt_opts) {
+            if let None = get_opt_fuse!(RootMode, mnt_opts) {
                 mnt_opts.add_opt(MetaFuseOpt::RootMode(40755));
             }
             // TODO: check if allow_other and allow_root aren't mutually active
@@ -681,6 +699,7 @@ cfg_if! {
                     let (pattern, _) = opt.split_at(opt_name_len);
                     match pattern {
                         "allow_other" 
+                            | "auto_unmount"
                             | "default_permissions"
                             | "rootmode"
                             | "blkdev"
