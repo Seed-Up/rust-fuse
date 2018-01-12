@@ -98,9 +98,7 @@ cfg_if! {
         macro_rules! is_opt_fusemount {
             ($type: ident, $tab: expr) => {{
                 let mut res = false;
-                info!("len: {}", $tab.opts_fusermount.len());
                 for i in $tab.opts_fusermount.iter().rev() {
-                    info!("try: {}", i.to_string());
                     match i {
                         &MetaFuseOpt::$type => {res = true; break; }
                         _ => (),
