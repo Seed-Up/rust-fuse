@@ -670,7 +670,7 @@ cfg_if! {
             // TODO: get kernel/other flags options
 
             let mut res = fuse_mount_sys(mountpoint, flags, &mnt_opts);
-            if res < 0 {
+            if cfg!(not(feature = "nofusermount")) && res < 0 {
                 let err = errno().0;
                 error!("fuse_mount_sys errno: {}", err);
                 // TODO: error
