@@ -267,7 +267,7 @@ impl<'a> Request<'a> {
             FUSE_READDIR => {
                 let arg: &fuse_read_in = data.fetch();
                 debug!("READDIR({}) ino {:#018x}, fh {}, offset {}, size {}", self.header.unique, self.header.nodeid, arg.fh, arg.offset, arg.size);
-                se.filesystem.readdir(self, self.header.nodeid, arg.fh, arg.offset, ReplyDirectory::new(self.header.unique, self.ch, arg.size as usize));
+                se.filesystem.readdir(self, self.header.nodeid, arg.fh, arg.offset, ReplyDirectory::new(self.header.unique, self.ch.clone(), arg.size as usize));
             },
             FUSE_RELEASEDIR => {
                 let arg: &fuse_release_in = data.fetch();
@@ -364,7 +364,7 @@ impl<'a> Request<'a> {
     /// Create a reply object for this request that can be passed to the filesystem
     /// implementation and makes sure that a request is replied exactly once
     fn reply<T: Reply> (&self) -> T {
-        Reply::new(self.header.unique, self.ch)
+        Reply::new(self.header.unique, self.ch.clone())
     }
 
     /// Returns the unique identifier of this request

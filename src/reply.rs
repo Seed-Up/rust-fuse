@@ -247,6 +247,8 @@ pub struct ReplyData {
     reply: ReplyRaw<()>,
 }
 
+unsafe impl Sync for ReplyData{}
+
 impl Reply for ReplyData {
     fn new<S: ReplySender> (unique: u64, sender: S) -> ReplyData {
         ReplyData { reply: Reply::new(unique, sender) }

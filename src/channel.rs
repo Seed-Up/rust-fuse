@@ -6,6 +6,7 @@ use std::io;
 use std::ffi::{CString, CStr, OsStr};
 use std::os::unix::ffi::OsStrExt;
 use std::path::{PathBuf, Path};
+use std::sync::{Arc, Mutex};
 use libc::{self, c_int, c_void, size_t};
 use fuse_opts::fuse_args;
 use fuse::fuse_mount_compat25;
@@ -93,7 +94,7 @@ impl Channel {
         // a sender by using the same fd and use it in other threads. Only
         // the channel closes the fd when dropped. If any sender is used after
         // dropping the channel, it'll return an EBADF error.
-        ChannelSender { fd: self.fd }
+        ChannelSender { fd: Arc::new(Mutex::new(self.fd)) }
     }
 }
 
@@ -108,10 +109,11 @@ impl Drop for Channel {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct ChannelSender {
-    fd: c_int,
+    fd: Arc<Mutex<c_int>>,
 }
+
 
 impl ChannelSender {
     /// Send all data in the slice of slice of bytes in a single write (can block).
@@ -119,12 +121,16 @@ impl ChannelSender {
         let iovecs: Vec<_> = buffer.iter().map(|d| {
             libc::iovec { iov_base: d.as_ptr() as *mut c_void, iov_len: d.len() as size_t }
         }).collect();
-        let rc = unsafe { libc::writev(self.fd, iovecs.as_ptr(), iovecs.len() as c_int) };
-        if rc < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(())
+        if let Ok(fd) = self.fd.lock() {
+            let fd = *fd;
+            let rc = unsafe { libc::writev(fd, iovecs.as_ptr(), iovecs.len() as c_int) };
+            if rc < 0 {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
         }
+        else { Err(io::Error::last_os_error()) }
     }
 }
 
