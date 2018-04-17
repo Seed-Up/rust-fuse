@@ -48,13 +48,13 @@ impl Channel {
     }
 
     #[cfg(feature="mio")]
-    pub fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+    pub fn set_nonblocking(&self, nonblocking: bool) -> Result<(), Error> {
         // Taken from https://github.com/rust-lang/rust/blob/6ccfe68076abc78392ab9e1d81b5c1a2123af657/src/libstd/sys/unix/fd.rs#L164
         // Behavior should be consistent accross OSes.
         unsafe {
             let previous = libc::fcntl(self.fd, libc::F_GETFL);
             if previous == -1 {
-                return Err(io::Error::last_os_error());
+                return Err(io::Error::last_os_error().into());
             }
             let new = if nonblocking {
                 previous | libc::O_NONBLOCK
@@ -64,7 +64,7 @@ impl Channel {
             if new != previous {
                 let err = libc::fcntl(self.fd, libc::F_SETFL, new);
                 if err == -1 {
-                    return Err(io::Error::last_os_error());
+                    return Err(io::Error::last_os_error().into());
                 }
             }
             Ok(())

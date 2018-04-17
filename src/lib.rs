@@ -30,6 +30,7 @@ extern crate mio;
 
 use std::convert::AsRef;
 use std::ffi::OsStr;
+use std::io;
 use std::path::Path;
 use libc::{c_int, ENOSYS};
 use time::Timespec;
@@ -459,6 +460,6 @@ pub unsafe fn spawn_mount<'a, FS: Filesystem+Send+'a, P: AsRef<Path>> (filesyste
 /// Mount the given filesystem to the given mountpointa and return Evented FS
 /// Use handle_one_req on it to do execute one by one fuse's operations
 #[cfg(feature = "mio")]
-pub fn mount_evented<FS: Filesystem, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> io::Result<FuseEvented<FS>> {
+pub fn mount_evented<FS: Filesystem, P: AsRef<Path>> (filesystem: FS, mountpoint: &P, options: &[&OsStr]) -> Result<FuseEvented<FS>, Error> {
     Session::new(filesystem, mountpoint.as_ref(), options).and_then(|se| se.evented())
 }

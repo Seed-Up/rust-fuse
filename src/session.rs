@@ -67,7 +67,7 @@ impl<FS: Filesystem> Session<FS> {
     /// loop. The file descriptor is set to nonblocking to ensure it works
     /// correctly from tokio.
     #[cfg(feature = "mio")]
-    pub fn evented(self) -> io::Result<FuseEvented<FS>> {
+    pub fn evented(self) -> Result<FuseEvented<FS>, Error> {
         self.ch.set_nonblocking(true)?;
         Ok(FuseEvented(self))
     }
@@ -254,7 +254,7 @@ cfg_if! {
 
         impl<FS: Filesystem> FuseEvented<FS> {
             /// Read and execute one fuse's request before returning
-            pub fn handle_one_req(&mut self, buf: &mut Vec<u8>) -> io::Result<()> {
+            pub fn handle_one_req(&mut self, buf: &mut Vec<u8>) -> Result<(), Error> {
                 self.0.handle_one_req(buf)
             }
         }
