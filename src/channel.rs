@@ -11,6 +11,7 @@ use libc::{self, c_int, c_void, size_t};
 use fuse_opts::fuse_args;
 use fuse::fuse_mount_compat25;
 use reply::ReplySender;
+use failure::Error;
 
 /// Helper function to provide options as a fuse_args struct
 /// (which contains an argc count and an argv pointer)
@@ -34,12 +35,12 @@ impl Channel {
     /// given path. The kernel driver will delegate filesystem operations of
     /// the given path to the channel. If the channel is dropped, the path is
     /// unmounted.
-    pub fn new (mountpoint: &Path, options: &[&OsStr]) -> io::Result<Channel> {
+    pub fn new (mountpoint: &Path, options: &[&OsStr]) -> Result<Channel, Error> {
         let mountpoint = try!(mountpoint.canonicalize());
         with_fuse_args(options, |args| {
             let fd = fuse_mount_compat25(&mountpoint, args)?;
             if fd < 0 {
-                Err(io::Error::last_os_error())
+                Err(io::Error::last_os_error().into())
             } else {
                 Ok(Channel { mountpoint: mountpoint, fd: fd })
             }

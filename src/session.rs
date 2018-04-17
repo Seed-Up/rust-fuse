@@ -15,6 +15,7 @@ use libc::{EAGAIN, EINTR, ENODEV, ENOENT};
 use channel::{self, Channel};
 use Filesystem;
 use request;
+use failure::Error;
 
 /// The max size of write requests from the kernel. The absolute minimum is 4k,
 /// FUSE recommends at least 128k, max 16M. The FUSE default is 16M on OS X
@@ -44,7 +45,7 @@ pub struct Session<FS: Filesystem> {
 
 impl<FS: Filesystem> Session<FS> {
     /// Create a new session by mounting the given filesystem to the given mountpoint
-    pub fn new (filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> io::Result<Session<FS>> {
+    pub fn new (filesystem: FS, mountpoint: &Path, options: &[&OsStr]) -> Result<Session<FS>, Error> {
         info!("Mounting {}", mountpoint.display());
         Channel::new(mountpoint, options).map(
             |ch| Session {
@@ -76,13 +77,13 @@ impl<FS: Filesystem> Session<FS> {
     /// mio.
     ///
     /// Takes a buffer to allow reducing allocations.
-    pub fn handle_one_req(&mut self, buf: &mut Vec<u8>) -> io::Result<()> {
+    pub fn handle_one_req(&mut self, buf: &mut Vec<u8>) -> Result<(), Error> {
         match self.ch.receive(buf) {
             Ok(()) => match request::request(self.ch.sender(), &buf) {
                     // Dispatch request
-                    Some(req) => Ok(request::dispatch(&req, self)),
+                    Some(req) => Ok(request::dispatch(&req, self)?),
                     // Quit loop on illegal request
-                    None => Err(io::Error::last_os_error()),
+                    None => Err(io::Error::last_os_error().into()),
             },
             Err(err) => match err.raw_os_error() {
                     // Operation interrupted. Accordingly to FUSE, this is safe to retry
@@ -94,7 +95,7 @@ impl<FS: Filesystem> Session<FS> {
                     // Filesystem was unmounted, quit the loop
                     Some(ENODEV) => Ok(()),
                     // Unhandled error
-                    _ => return Err(err),
+                    _ => return Err(err.into()),
             },
         }
     }
@@ -103,7 +104,7 @@ impl<FS: Filesystem> Session<FS> {
     /// calls into the filesystem. This read-dispatch-loop is non-concurrent to prevent
     /// having multiple buffers (which take up much memory), but the filesystem methods
     /// may run concurrent by spawning threads.
-    pub fn run (&mut self) -> io::Result<()> {
+    pub fn run (&mut self) -> Result<(), Error> {
         // Buffer for receiving requests from the kernel. Only one is allocated and
         // it is reused immediately after dispatching to conserve memory and allocations.
         let mut buffer: Vec<u8> = Vec::with_capacity(BUFFER_SIZE);
@@ -113,7 +114,7 @@ impl<FS: Filesystem> Session<FS> {
             match self.ch.receive(&mut buffer) {
                 Ok(()) => match request::request(self.ch.sender(), &buffer) {
                     // Dispatch request
-                    Some(req) => request::dispatch(&req, self),
+                    Some(req) => request::dispatch(&req, self)?,
                     // Quit loop on illegal request
                     None => break,
                 },
@@ -127,7 +128,7 @@ impl<FS: Filesystem> Session<FS> {
                     // Filesystem was unmounted, quit the loop
                     Some(ENODEV) => break,
                     // Unhandled error
-                    _ => return Err(err),
+                    _ => return Err(err.into()),
                 },
             }
         }
@@ -137,7 +138,7 @@ impl<FS: Filesystem> Session<FS> {
 
 impl<'a, FS: Filesystem+Send+'a> Session<FS> {
     /// Run the session loop in a background thread
-    pub unsafe fn spawn (self) -> io::Result<BackgroundSession<'a>> {
+    pub unsafe fn spawn (self) -> Result<BackgroundSession<'a>, Error> {
         BackgroundSession::new(self)
     }
 }
@@ -160,11 +161,15 @@ impl<'a> BackgroundSession<'a> {
     /// Create a new background session for the given session by running its
     /// session loop in a background thread. If the returned handle is dropped,
     /// the filesystem is unmounted and the given session ends.
-    pub unsafe fn new<FS: Filesystem+Send+'a> (se: Session<FS>) -> io::Result<BackgroundSession<'a>> {
+    pub unsafe fn new<FS: Filesystem+Send+'a> (se: Session<FS>) -> Result<BackgroundSession<'a>, Error> {
         let mountpoint = se.mountpoint().to_path_buf();
         let guard = scoped(move || {
             let mut se = se;
-            se.run()
+            if let Err(_) = se.run() {
+                Err(io::Error::last_os_error())
+            } else {
+                Ok(())
+            }
         });
         Ok(BackgroundSession { mountpoint: mountpoint, guard: guard })
     }
